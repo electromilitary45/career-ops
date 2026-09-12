@@ -5,38 +5,28 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/jobs/daily?date=2026-09-12&viewed=false&source=greenhouse&limit=50
+ * GET /api/jobs/daily?date=2026-09-12&viewed=false&source=greenhouse&limit=50&offset=0
  *
  * Returns jobs scraped on a given date from Firestore.
  * All params optional — defaults to today, all viewed states, all sources.
+ * Pagination: limit (max 200, default 50) + offset.
  */
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const date = url.searchParams.get("date") || new Date().toISOString().split("T")[0];
   const viewed = url.searchParams.get("viewed"); // "true" | "false" | null (all)
   const source = url.searchParams.get("source"); // e.g. "greenhouse" | null (all)
-  const limit = Math.min(Number(url.searchParams.get("limit")) || 100, 500);
+  const limit = Math.min(Number(url.searchParams.get("limit")) || 50, 200);
+  const offset = Math.max(Number(url.searchParams.get("offset")) || 0, 0);
 
   try {
     const db = getAdminDb();
-    let q = db.collection("jobs")
+    const snapshot = await db.collection("jobs")
       .where("date", "==", date)
-      .orderBy("scrapedAt", "desc");
+      .limit(2000)
+      .get();
 
-    if (viewed === "true") {
-      q = db.collection("jobs")
-        .where("date", "==", date)
-        .where("viewed", "==", true)
-        .orderBy("scrapedAt", "desc");
-    } else if (viewed === "false") {
-      q = db.collection("jobs")
-        .where("date", "==", date)
-        .where("viewed", "==", false)
-        .orderBy("scrapedAt", "desc");
-    }
-
-    const snapshot = await q.limit(500).get();
-    const allJobs = snapshot.docs.map((doc) => {
+    let allJobs = snapshot.docs.map((doc) => {
       const data = doc.data();
       return {
         id: doc.id,
@@ -52,19 +42,26 @@ export async function GET(req: Request) {
       };
     });
 
-    // Client-side source filter (Firestore OR queries are limited)
-    const jobs = source ? allJobs.filter((j) => j.source === source) : allJobs;
+    // Filters
+    if (viewed === "true") allJobs = allJobs.filter((j) => j.viewed);
+    else if (viewed === "false") allJobs = allJobs.filter((j) => !j.viewed);
+    if (source) allJobs = allJobs.filter((j) => j.source === source);
+
+    const total = allJobs.length;
+    const jobs = allJobs.slice(offset, offset + limit);
 
     return NextResponse.json({
       ok: true,
       date,
-      count: jobs.length,
-      jobs: jobs.slice(0, limit),
+      total,
+      offset,
+      limit,
+      hasMore: offset + limit < total,
+      jobs,
     });
   } catch (error) {
     console.error("/api/jobs/daily error:", error);
     const msg = error instanceof Error ? error.message : String(error);
-    // Surface missing env var without leaking secrets
     if (msg.includes("FIREBASE_SERVICE_ACCOUNT")) {
       return NextResponse.json(
         { error: "Server config missing: FIREBASE_SERVICE_ACCOUNT" },

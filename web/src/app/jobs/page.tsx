@@ -15,34 +15,60 @@ type Job = {
   viewed: boolean;
 };
 
+const PAGE_SIZE = 50;
+
 export default function JobsPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [offset, setOffset] = useState(0);
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [viewedFilter, setViewedFilter] = useState<string>("false");
   const [sourceFilter, setSourceFilter] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  const fetchJobs = useCallback(async () => {
-    setLoading(true);
-    const params = new URLSearchParams({ date, limit: "200" });
+  const fetchJobs = useCallback(async (reset = true) => {
+    const off = reset ? 0 : offset;
+    if (reset) {
+      setLoading(true);
+      setJobs([]);
+      setOffset(0);
+    } else {
+      setLoadingMore(true);
+    }
+
+    const params = new URLSearchParams({
+      date,
+      limit: String(PAGE_SIZE),
+      offset: String(off),
+    });
     if (viewedFilter) params.set("viewed", viewedFilter);
     if (sourceFilter) params.set("source", sourceFilter);
 
     try {
       const res = await fetch(`/api/jobs/daily?${params}`);
       const data = await res.json();
-      setJobs(data.jobs || []);
+      if (reset) {
+        setJobs(data.jobs || []);
+      } else {
+        setJobs((prev) => [...prev, ...(data.jobs || [])]);
+      }
+      setTotal(data.total || 0);
+      setHasMore(data.hasMore || false);
+      setOffset(off + PAGE_SIZE);
     } catch (err) {
       console.error("Failed to fetch jobs:", err);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
-  }, [date, viewedFilter, sourceFilter]);
+  }, [date, viewedFilter, sourceFilter, offset]);
 
   useEffect(() => {
-    fetchJobs();
-  }, [fetchJobs]);
+    fetchJobs(true);
+  }, [date, viewedFilter, sourceFilter]);
 
   const markViewed = async (ids: string[], viewed: boolean) => {
     try {
@@ -54,7 +80,6 @@ export default function JobsPage() {
         },
         body: JSON.stringify({ ids, viewed }),
       });
-      // Update local state
       setJobs((prev) =>
         prev.map((j) => (ids.includes(j.id) ? { ...j, viewed } : j))
       );
@@ -126,7 +151,7 @@ export default function JobsPage() {
           </select>
         </div>
         <div className="text-sm text-gray-500">
-          {jobs.length} ofertas
+          {jobs.length} de {total} ofertas
           {selected.size > 0 && ` · ${selected.size} seleccionadas`}
         </div>
       </div>
@@ -157,55 +182,70 @@ export default function JobsPage() {
           No hay ofertas para esta fecha. ¿Corrió el ingest hoy?
         </div>
       ) : (
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 pb-2 border-b text-sm font-medium text-gray-500">
-            <input
-              type="checkbox"
-              checked={selected.size === jobs.length && jobs.length > 0}
-              onChange={selectAll}
-              className="cursor-pointer"
-            />
-            <span className="w-8">#</span>
-            <span className="flex-1">Empresa / Puesto</span>
-            <span className="w-32">Ubicación</span>
-            <span className="w-24">Fuente</span>
-            <span className="w-10">Ver</span>
-          </div>
-          {jobs.map((job, i) => (
-            <div
-              key={job.id}
-              className={`flex items-center gap-2 py-2 px-2 rounded text-sm ${
-                job.viewed ? "opacity-50" : "hover:bg-gray-50"
-              } ${selected.has(job.id) ? "bg-blue-50" : ""}`}
-            >
+        <>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 pb-2 border-b text-sm font-medium text-gray-500">
               <input
                 type="checkbox"
-                checked={selected.has(job.id)}
-                onChange={() => toggleSelect(job.id)}
+                checked={selected.size === jobs.length && jobs.length > 0}
+                onChange={selectAll}
                 className="cursor-pointer"
               />
-              <span className="w-8 text-gray-400">{i + 1}</span>
-              <div className="flex-1 min-w-0">
-                <div className="font-medium truncate">{job.company}</div>
-                <div className="text-gray-600 truncate">{job.title}</div>
-              </div>
-              <div className="w-32 text-gray-500 truncate">{job.location || "—"}</div>
-              <div className="w-24 text-gray-400 text-xs">{job.source}</div>
-              <div className="w-10">
-                {job.url && (
-                  <a
-                    href={job.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-600 hover:underline"
-                  >
-                    ↗
-                  </a>
-                )}
-              </div>
+              <span className="w-8">#</span>
+              <span className="flex-1">Empresa / Puesto</span>
+              <span className="w-32">Ubicación</span>
+              <span className="w-24">Fuente</span>
+              <span className="w-10">Ver</span>
             </div>
-          ))}
-        </div>
+            {jobs.map((job, i) => (
+              <div
+                key={job.id}
+                className={`flex items-center gap-2 py-2 px-2 rounded text-sm ${
+                  job.viewed ? "opacity-50" : "hover:bg-gray-50"
+                } ${selected.has(job.id) ? "bg-blue-50" : ""}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.has(job.id)}
+                  onChange={() => toggleSelect(job.id)}
+                  className="cursor-pointer"
+                />
+                <span className="w-8 text-gray-400">{i + 1}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate">{job.company}</div>
+                  <div className="text-gray-600 truncate">{job.title}</div>
+                </div>
+                <div className="w-32 text-gray-500 truncate">{job.location || "—"}</div>
+                <div className="w-24 text-gray-400 text-xs">{job.source}</div>
+                <div className="w-10">
+                  {job.url && (
+                    <a
+                      href={job.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline"
+                    >
+                      ↗
+                    </a>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Load more */}
+          {hasMore && (
+            <div className="text-center mt-6">
+              <button
+                onClick={() => fetchJobs(false)}
+                disabled={loadingMore}
+                className="px-6 py-2 bg-gray-800 text-white text-sm rounded hover:bg-gray-700 disabled:opacity-50"
+              >
+                {loadingMore ? "Cargando..." : `Cargar más (${jobs.length} de ${total})`}
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

@@ -192,7 +192,7 @@ function jobHash(job) {
 
 async function saveJobsToFirestore(jobs, source) {
   const dateKey = todayKey();
-  const batch = db.batch();
+  let batch = db.batch();
   let count = 0;
 
   for (const job of jobs) {
@@ -216,6 +216,7 @@ async function saveJobsToFirestore(jobs, source) {
     if (count % 500 === 0) {
       await batch.commit();
       console.log(`  Committed ${count} jobs...`);
+      batch = db.batch();
     }
   }
 

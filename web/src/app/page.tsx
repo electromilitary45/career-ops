@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { collection, query, where, orderBy, limit, getDocs } from "firebase/firestore";
+import { collection, query, where, orderBy, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 type Job = {
@@ -32,8 +32,6 @@ export default function Home() {
     async function fetchData() {
       try {
         const date = todayKey();
-
-        // Fetch all jobs for today
         const q = query(
           collection(db, "jobs"),
           where("date", "==", date),
@@ -63,7 +61,7 @@ export default function Home() {
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 text-white">
       {/* Hero */}
       <div className="max-w-4xl mx-auto px-6 pt-20 pb-16">
-        <div className="flex items-center gap-3 mb-4">
+        <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-xl font-bold">
             J
           </div>
@@ -76,10 +74,30 @@ export default function Home() {
           <span className="text-blue-400">en Costa Rica</span>
         </h1>
 
-        <p className="text-lg text-gray-400 mb-8 max-w-xl">
-          Scraping automático de +200 bolsas de empleo. Actualizado cada 20 minutos.
-          Gratis y open source.
+        <p className="text-lg text-gray-400 mb-6 max-w-xl">
+          Scraping automático de +200 bolsas de empleo tech en Costa Rica.
+          Actualizado cada 20 minutos. Gratis y open source.
         </p>
+
+        {/* Author */}
+        <div className="flex items-center gap-3 mb-8">
+          <img
+            src="https://github.com/electromilitary45.png"
+            alt="Sebastian Villalobos"
+            className="w-10 h-10 rounded-full border border-gray-700"
+          />
+          <div>
+            <div className="text-sm font-medium text-white">Sebastian Villalobos</div>
+            <a
+              href="https://github.com/electromilitary45"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-gray-500 hover:text-gray-300"
+            >
+              @electromilitary45
+            </a>
+          </div>
+        </div>
 
         <div className="flex gap-4">
           <Link
@@ -94,7 +112,7 @@ export default function Home() {
             rel="noopener noreferrer"
             className="px-6 py-3 border border-gray-700 hover:border-gray-500 rounded-lg font-medium transition-colors"
           >
-            GitHub
+            Código fuente
           </a>
         </div>
       </div>
@@ -164,15 +182,50 @@ export default function Home() {
         {!loading && recent.length === 0 && (
           <div className="text-center py-8 text-gray-500">
             <p>Aún no hay ofertas de hoy.</p>
-            <p className="text-sm mt-1">El scraping se ejecuta automáticamente en la VM de OCI.</p>
+            <p className="text-sm mt-1">El scraping se ejecuta automáticamente en una VM de Oracle Cloud (gratis).</p>
           </div>
         )}
       </div>
 
+      {/* About */}
+      <div className="border-t border-gray-800 py-12">
+        <div className="max-w-4xl mx-auto px-6">
+          <h2 className="text-lg font-semibold mb-4 text-gray-300">Sobre el proyecto</h2>
+          <div className="grid md:grid-cols-2 gap-8 text-gray-400 text-sm leading-relaxed">
+            <div>
+              <p className="mb-3">
+                <strong className="text-white">JobTracker CR</strong> es un proyecto personal que
+                monitorea automáticamente más de 200 bolsas de empleo tech en Costa Rica.
+                Cada 20 minutos, un scraping corre en una VM gratuita de Oracle Cloud
+                y actualiza las ofertas en Firestore.
+              </p>
+              <p>
+                Inspirado en <a href="https://t.me/STEMJobsCR" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">STEMJobsCR</a>,
+                pero con un dashboard web propio y la posibilidad de marcar ofertas como vistas.
+              </p>
+            </div>
+            <div>
+              <p className="mb-2 font-medium text-gray-300">Stack</p>
+              <ul className="space-y-1">
+                <li>Next.js + TypeScript (Vercel)</li>
+                <li>Firebase Firestore (base de datos)</li>
+                <li>Oracle Cloud Always Free (scraping)</li>
+                <li>200+ providers de career-ops</li>
+              </ul>
+              <p className="mt-3">
+                <a href="https://github.com/electromilitary45/career-ops" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
+                  Ver código fuente en GitHub →
+                </a>
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Footer */}
-      <div className="border-t border-gray-800 py-8">
+      <div className="border-t border-gray-800 py-6">
         <div className="max-w-4xl mx-auto px-6 flex items-center justify-between text-sm text-gray-500">
-          <span>JobTracker CR — proyecto personal</span>
+          <span>JobTracker CR — proyecto personal de Sebastian Villalobos</span>
           <a
             href="https://github.com/electromilitary45"
             target="_blank"

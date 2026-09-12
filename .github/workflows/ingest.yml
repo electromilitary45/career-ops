@@ -23,6 +23,15 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Deploy Firestore indexes
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          echo "$FIREBASE_SERVICE_ACCOUNT" > /tmp/firebase-sa.json
+          export GOOGLE_APPLICATION_CREDENTIALS=/tmp/firebase-sa.json
+          npx firebase-tools deploy --only firestore:indexes --project jobs-table-cr
+          rm /tmp/firebase-sa.json
+
       - name: Run ingest
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}

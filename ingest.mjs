@@ -46,20 +46,29 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 let db;
 
 async function initFirebase() {
-  // Try to use firebase-admin with service account
-  const saPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || path.join(CODE_ROOT, 'firebase-service-account.json');
+  // 1. Try FIREBASE_SERVICE_ACCOUNT env var (JSON string — used by GitHub Actions)
+  const saJson = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (saJson) {
+    const serviceAccount = JSON.parse(saJson);
+    const admin = await import('firebase-admin');
+    if (!admin.apps.length) {
+      admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+    }
+    db = admin.firestore();
+    console.log('Firebase Admin initialized (env var)');
+    return;
+  }
 
+  // 2. Try service account file (for local dev / OCI)
+  const saPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || path.join(CODE_ROOT, 'firebase-service-account.json');
   if (existsSync(saPath)) {
     const serviceAccount = JSON.parse(readFileSync(saPath, 'utf8'));
     const admin = await import('firebase-admin');
-
     if (!admin.apps.length) {
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-      });
+      admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
     }
     db = admin.firestore();
-    console.log('Firebase Admin initialized (service account)');
+    console.log('Firebase Admin initialized (service account file)');
     return;
   }
 

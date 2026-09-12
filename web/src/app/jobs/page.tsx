@@ -1,75 +1,208 @@
 "use client";
 
-import Link from "next/link";
-import { Check, AlertTriangle, Loader2, Trash2 } from "lucide-react";
-import { useJobs } from "@/components/jobs/job-store";
-import { pillTone } from "@/components/jobs/worker-pills";
-import { cn } from "@/lib/cn";
+import { useState, useEffect, useCallback } from "react";
 
-const TONE_CHIP = {
-  good: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
-  warn: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-  bad: "bg-red-500/15 text-red-700 dark:text-red-400",
-  muted: "bg-surface-hover text-muted",
-} as const;
+type Job = {
+  id: string;
+  company: string;
+  title: string;
+  url: string;
+  location: string;
+  description: string;
+  source: string;
+  date: string;
+  scrapedAt: string;
+  viewed: boolean;
+};
 
-export default function JobsHistory() {
-  const { jobs, clearFinished } = useJobs();
+export default function JobsPage() {
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [viewedFilter, setViewedFilter] = useState<string>("false");
+  const [sourceFilter, setSourceFilter] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const fetchJobs = useCallback(async () => {
+    setLoading(true);
+    const params = new URLSearchParams({ date, limit: "200" });
+    if (viewedFilter) params.set("viewed", viewedFilter);
+    if (sourceFilter) params.set("source", sourceFilter);
+
+    try {
+      const res = await fetch(`/api/jobs/daily?${params}`);
+      const data = await res.json();
+      setJobs(data.jobs || []);
+    } catch (err) {
+      console.error("Failed to fetch jobs:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [date, viewedFilter, sourceFilter]);
+
+  useEffect(() => {
+    fetchJobs();
+  }, [fetchJobs]);
+
+  const markViewed = async (ids: string[], viewed: boolean) => {
+    try {
+      await fetch("/api/jobs/viewed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids, viewed }),
+      });
+      // Update local state
+      setJobs((prev) =>
+        prev.map((j) => (ids.includes(j.id) ? { ...j, viewed } : j))
+      );
+      setSelected(new Set());
+    } catch (err) {
+      console.error("Failed to mark viewed:", err);
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    if (selected.size === jobs.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(jobs.map((j) => j.id)));
+    }
+  };
+
+  const sources = [...new Set(jobs.map((j) => j.source))].sort();
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-10">
-      <div className="flex items-end justify-between">
+    <div className="max-w-6xl mx-auto p-6">
+      <h1 className="text-2xl font-bold mb-6">STEM Jobs — Ofertas del Día</h1>
+
+      {/* Filters */}
+      <div className="flex flex-wrap gap-4 mb-6 items-end">
         <div>
-          <h1 className="font-display text-2xl tracking-tight text-landing">Workers</h1>
-          <p className="mt-1 text-sm text-muted">
-            Every evaluation you ran — a persistent log. <span className="tabular-nums">{jobs.length}</span> total.
-          </p>
+          <label className="block text-sm font-medium mb-1">Fecha</label>
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="border rounded px-3 py-1.5 text-sm"
+          />
         </div>
-        {jobs.some((j) => j.status !== "running") && (
-          <button
-            onClick={clearFinished}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-muted transition-colors hover:bg-surface-hover hover:text-foreground"
+        <div>
+          <label className="block text-sm font-medium mb-1">Vistas</label>
+          <select
+            value={viewedFilter}
+            onChange={(e) => setViewedFilter(e.target.value)}
+            className="border rounded px-3 py-1.5 text-sm"
           >
-            <Trash2 className="size-3.5" /> Clear finished
-          </button>
-        )}
+            <option value="">Todas</option>
+            <option value="false">No vistas</option>
+            <option value="true">Vistas</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">Fuente</label>
+          <select
+            value={sourceFilter}
+            onChange={(e) => setSourceFilter(e.target.value)}
+            className="border rounded px-3 py-1.5 text-sm"
+          >
+            <option value="">Todas</option>
+            {sources.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="text-sm text-gray-500">
+          {jobs.length} ofertas
+          {selected.size > 0 && ` · ${selected.size} seleccionadas`}
+        </div>
       </div>
 
-      {jobs.length === 0 ? (
-        <div className="mt-8 rounded-2xl border border-dashed border-border bg-surface/30 px-6 py-12 text-center text-sm text-muted">
-          No workers yet. Hit <span className="text-foreground">Evaluate</span> on an inbox posting to spin one up.
+      {/* Actions */}
+      {selected.size > 0 && (
+        <div className="flex gap-2 mb-4">
+          <button
+            onClick={() => markViewed([...selected], true)}
+            className="px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700"
+          >
+            Marcar como vistas ({selected.size})
+          </button>
+          <button
+            onClick={() => setSelected(new Set())}
+            className="px-3 py-1.5 border text-sm rounded hover:bg-gray-50"
+          >
+            Limpiar selección
+          </button>
+        </div>
+      )}
+
+      {/* Job list */}
+      {loading ? (
+        <div className="text-center py-12 text-gray-500">Cargando...</div>
+      ) : jobs.length === 0 ? (
+        <div className="text-center py-12 text-gray-500">
+          No hay ofertas para esta fecha. ¿Corrió el ingest hoy?
         </div>
       ) : (
-        <ul className="mt-6 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface/40">
-          {jobs.map((j) => {
-            const tone = pillTone(j);
-            return (
-              <li key={j.id}>
-                <Link href={`/jobs/${j.id}`} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-surface-hover">
-                  {j.status === "running" ? (
-                    <Loader2 className="size-4 shrink-0 animate-spin text-brand" />
-                  ) : j.status === "error" ? (
-                    <AlertTriangle className="size-4 shrink-0 text-red-400" />
-                  ) : (
-                    <Check className="size-4 shrink-0 text-emerald-500" />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">{j.title}</div>
-                    {(j.subtitle || j.result?.summary) && (
-                      <div className="truncate text-xs text-muted">{j.result?.summary || j.subtitle}</div>
-                    )}
-                  </div>
-                  {j.result?.score != null && (
-                    <span className={cn("shrink-0 rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums", TONE_CHIP[tone])}>
-                      {j.result.score}/5
-                    </span>
-                  )}
-                  <span className="hidden shrink-0 text-xs capitalize text-faint sm:block">{j.status}</span>
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 pb-2 border-b text-sm font-medium text-gray-500">
+            <input
+              type="checkbox"
+              checked={selected.size === jobs.length && jobs.length > 0}
+              onChange={selectAll}
+              className="cursor-pointer"
+            />
+            <span className="w-8">#</span>
+            <span className="flex-1">Empresa / Puesto</span>
+            <span className="w-32">Ubicación</span>
+            <span className="w-24">Fuente</span>
+            <span className="w-10">Ver</span>
+          </div>
+          {jobs.map((job, i) => (
+            <div
+              key={job.id}
+              className={`flex items-center gap-2 py-2 px-2 rounded text-sm ${
+                job.viewed ? "opacity-50" : "hover:bg-gray-50"
+              } ${selected.has(job.id) ? "bg-blue-50" : ""}`}
+            >
+              <input
+                type="checkbox"
+                checked={selected.has(job.id)}
+                onChange={() => toggleSelect(job.id)}
+                className="cursor-pointer"
+              />
+              <span className="w-8 text-gray-400">{i + 1}</span>
+              <div className="flex-1 min-w-0">
+                <div className="font-medium truncate">{job.company}</div>
+                <div className="text-gray-600 truncate">{job.title}</div>
+              </div>
+              <div className="w-32 text-gray-500 truncate">{job.location || "—"}</div>
+              <div className="w-24 text-gray-400 text-xs">{job.source}</div>
+              <div className="w-10">
+                {job.url && (
+                  <a
+                    href={job.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline"
+                  >
+                    ↗
+                  </a>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

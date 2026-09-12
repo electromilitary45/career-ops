@@ -63,8 +63,16 @@ export async function GET(req: Request) {
     });
   } catch (error) {
     console.error("/api/jobs/daily error:", error);
+    const msg = error instanceof Error ? error.message : String(error);
+    // Surface missing env var without leaking secrets
+    if (msg.includes("FIREBASE_SERVICE_ACCOUNT")) {
+      return NextResponse.json(
+        { error: "Server config missing: FIREBASE_SERVICE_ACCOUNT" },
+        { status: 500 }
+      );
+    }
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "failed to query jobs" },
+      { error: msg },
       { status: 500 }
     );
   }

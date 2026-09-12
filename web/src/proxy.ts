@@ -7,7 +7,7 @@ import {
 } from "@/lib/origin-guard.mjs";
 
 // Public paths accessible without auth
-const PUBLIC_PATHS = ["/jobs"];
+const PUBLIC_PATHS = ["/", "/jobs"];
 const PUBLIC_API_PATHS = ["/api/jobs/daily", "/api/jobs/viewed"];
 
 function isPublic(pathname: string): boolean {

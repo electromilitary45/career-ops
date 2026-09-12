@@ -61,7 +61,8 @@ async function initFirebase() {
       console.error('FIREBASE_SERVICE_ACCOUNT parsed but missing project_id. Keys:', Object.keys(serviceAccount || {}));
       process.exit(1);
     }
-    const admin = await import('firebase-admin');
+    const adminModule = await import('firebase-admin');
+    const admin = adminModule.default || adminModule;
     if (!admin.apps.length) {
       admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
     }
@@ -74,7 +75,8 @@ async function initFirebase() {
   const saPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || path.join(CODE_ROOT, 'firebase-service-account.json');
   if (existsSync(saPath)) {
     const serviceAccount = JSON.parse(readFileSync(saPath, 'utf8'));
-    const admin = await import('firebase-admin');
+    const adminModule = await import('firebase-admin');
+    const admin = adminModule.default || adminModule;
     if (!admin.apps.length) {
       admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
     }

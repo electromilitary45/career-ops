@@ -207,4 +207,3 @@ firebase-service-account.json
 
 # Environment variables
 .env
-web/.env.local

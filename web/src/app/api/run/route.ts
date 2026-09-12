@@ -18,7 +18,7 @@ import { acquireTrackerWrite, releaseTrackerWrite } from "@/lib/core/run-registr
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 800; // a real oferta evaluation / pdf-mode CV tailoring + render is heavy and multi-step
+export const maxDuration = 300; // a real oferta evaluation / pdf-mode CV tailoring + render is heavy and multi-step
 
 export async function POST(req: Request) {
   let body: { kind?: string; input?: string; cliId?: string };

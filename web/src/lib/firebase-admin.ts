@@ -1,18 +1,18 @@
-import admin from "firebase-admin";
+import { cert, initializeApp, getApps } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
 
 function getAdmin() {
-  if (admin.apps.length) return admin;
+  if (getApps().length) return getApps()[0];
 
   const saJson = process.env.FIREBASE_SERVICE_ACCOUNT;
   if (saJson) {
     const serviceAccount = JSON.parse(saJson);
-    admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
-    return admin;
+    return initializeApp({ credential: cert(serviceAccount) });
   }
 
   throw new Error("FIREBASE_SERVICE_ACCOUNT env var required for server-side operations");
 }
 
 export function getAdminDb() {
-  return getAdmin().firestore();
+  return getFirestore(getAdmin());
 }

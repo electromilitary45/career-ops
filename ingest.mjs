@@ -38,7 +38,7 @@ try {
 const GOOGLE_SHEET_CSV_URL = process.env.GOOGLE_SHEET_CSV_URL ||
   'https://docs.google.com/spreadsheets/d/1wl7edAy6TcVuFh13LQ4FtvCZgPUb3ETFcQp8jlfuanM/export?format=csv&gid=0';
 
-const CONCURRENCY = 5;
+const CONCURRENCY = 10;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 // ── Firebase Admin ──────────────────────────────────────────────────

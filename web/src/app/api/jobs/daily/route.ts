@@ -44,16 +44,24 @@ export async function GET(req: Request) {
     }
 
     const snapshot = await getDocs(q);
-    let jobs = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-      scrapedAt: doc.data().scrapedAt?.toDate?.()?.toISOString() || null,
-    }));
+    const allJobs = snapshot.docs.map((doc) => {
+      const data = doc.data() as Record<string, unknown>;
+      return {
+        id: doc.id,
+        company: data.company || "",
+        title: data.title || "",
+        url: data.url || "",
+        location: data.location || "",
+        description: data.description || "",
+        source: data.source || "",
+        date: data.date || "",
+        viewed: data.viewed ?? false,
+        scrapedAt: (data.scrapedAt as { toDate?: () => Date })?.toDate?.()?.toISOString() || null,
+      };
+    });
 
     // Client-side source filter (Firestore OR queries are limited)
-    if (source) {
-      jobs = jobs.filter((j) => j.source === source);
-    }
+    const jobs = source ? allJobs.filter((j) => j.source === source) : allJobs;
 
     return NextResponse.json({
       ok: true,

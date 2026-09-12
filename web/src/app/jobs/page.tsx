@@ -48,7 +48,10 @@ export default function JobsPage() {
     try {
       await fetch("/api/jobs/viewed", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-viewed-secret": process.env.NEXT_PUBLIC_VIEWED_SECRET || "",
+        },
         body: JSON.stringify({ ids, viewed }),
       });
       // Update local state

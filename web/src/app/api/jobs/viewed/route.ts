@@ -3,14 +3,22 @@ import { getAdminDb } from "@/lib/firebase-admin";
 
 export const runtime = "nodejs";
 
+const EXPECTED_SECRET = process.env.VIEWED_SECRET;
+
 /**
  * POST /api/jobs/viewed
  *
  * Mark jobs as viewed (or unviewed).
+ * Requires x-viewed-secret header matching VIEWED_SECRET env var.
  * Body: { ids: ["2026-09-12-abc", "2026-09-12-def"], viewed?: boolean }
  * Default viewed = true.
  */
 export async function POST(req: Request) {
+  const secret = req.headers.get("x-viewed-secret");
+  if (!EXPECTED_SECRET || secret !== EXPECTED_SECRET) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
   let body: { ids?: string[]; viewed?: boolean };
   try {
     body = await req.json();

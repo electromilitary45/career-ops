@@ -19,8 +19,11 @@ import { UsageMeter } from "@/components/usage-meter";
 import { instrumentSerif } from "@/lib/fonts";
 import { NAV_ITEMS, isActivePath } from "@/lib/nav-items";
 
+const PUBLIC_ROUTES = ["/", "/jobs"];
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const isPublic = PUBLIC_ROUTES.some((r) => pathname === r || pathname.startsWith(r + "/"));
   return (
     <JobsProvider>
       <PipelineProvider>
@@ -28,6 +31,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <ExploreProvider>
       <MobileNav />
       <div className="flex min-h-screen">
+        {!isPublic && (
         <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface/30 p-4 md:flex">
           <Link href="/" className="mb-8 flex items-center gap-2.5 px-1">
             <CoMark size={32} />
@@ -71,11 +75,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </aside>
+        )}
         <main className="flex-1 overflow-x-hidden">{children}</main>
-        <AssistantConsole />
+        {!isPublic && <AssistantConsole />}
         <BackToTop />
-        <FirstScoreView />
-        <BetaBanner />
+        {!isPublic && <FirstScoreView />}
+        {!isPublic && <BetaBanner />}
       </div>
       </ExploreProvider>
       </ApplyProvider>

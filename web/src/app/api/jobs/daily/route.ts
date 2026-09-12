@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { collection, query, where, orderBy, getDocs } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { getAdminDb } from "@/lib/firebase-admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,33 +18,26 @@ export async function GET(req: Request) {
   const limit = Math.min(Number(url.searchParams.get("limit")) || 100, 500);
 
   try {
-    let q = query(
-      collection(db, "jobs"),
-      where("date", "==", date),
-      orderBy("scrapedAt", "desc")
-    );
+    const db = getAdminDb();
+    let q = db.collection("jobs")
+      .where("date", "==", date)
+      .orderBy("scrapedAt", "desc");
 
-    // Firestore doesn't support != queries well, so we filter viewed client-side
-    // or use whereEqualTo for specific values
     if (viewed === "true") {
-      q = query(
-        collection(db, "jobs"),
-        where("date", "==", date),
-        where("viewed", "==", true),
-        orderBy("scrapedAt", "desc")
-      );
+      q = db.collection("jobs")
+        .where("date", "==", date)
+        .where("viewed", "==", true)
+        .orderBy("scrapedAt", "desc");
     } else if (viewed === "false") {
-      q = query(
-        collection(db, "jobs"),
-        where("date", "==", date),
-        where("viewed", "==", false),
-        orderBy("scrapedAt", "desc")
-      );
+      q = db.collection("jobs")
+        .where("date", "==", date)
+        .where("viewed", "==", false)
+        .orderBy("scrapedAt", "desc");
     }
 
-    const snapshot = await getDocs(q);
+    const snapshot = await q.limit(500).get();
     const allJobs = snapshot.docs.map((doc) => {
-      const data = doc.data() as Record<string, unknown>;
+      const data = doc.data();
       return {
         id: doc.id,
         company: data.company || "",
@@ -56,7 +48,7 @@ export async function GET(req: Request) {
         source: data.source || "",
         date: data.date || "",
         viewed: data.viewed ?? false,
-        scrapedAt: (data.scrapedAt as { toDate?: () => Date })?.toDate?.()?.toISOString() || null,
+        scrapedAt: data.scrapedAt?.toDate?.()?.toISOString() || null,
       };
     });
 

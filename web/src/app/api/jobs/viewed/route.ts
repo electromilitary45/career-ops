@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { doc, updateDoc, writeBatch } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { getAdminDb } from "@/lib/firebase-admin";
 
 export const runtime = "nodejs";
 
@@ -31,18 +30,16 @@ export async function POST(req: Request) {
   const viewed = body.viewed !== false; // default true
 
   try {
+    const db = getAdminDb();
     // Firestore batch limit is 500
-    const batches = [];
     for (let i = 0; i < ids.length; i += 500) {
-      const batch = writeBatch(db);
+      const batch = db.batch();
       const chunk = ids.slice(i, i + 500);
       for (const id of chunk) {
-        batch.update(doc(db, "jobs", id), { viewed });
+        batch.update(db.collection("jobs").doc(id), { viewed });
       }
-      batches.push(batch.commit());
+      await batch.commit();
     }
-
-    await Promise.all(batches);
 
     return NextResponse.json({
       ok: true,

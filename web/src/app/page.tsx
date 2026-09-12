@@ -182,7 +182,7 @@ export default function Home() {
         {!loading && recent.length === 0 && (
           <div className="text-center py-8 text-gray-500">
             <p>Aún no hay ofertas de hoy.</p>
-            <p className="text-sm mt-1">El scraping se ejecuta automáticamente en una VM de Oracle Cloud (gratis).</p>
+            <p className="text-sm mt-1">El scraping se ejecuta automáticamente en GitHub Actions (gratis).</p>
           </div>
         )}
       </div>
@@ -196,7 +196,7 @@ export default function Home() {
               <p className="mb-3">
                 <strong className="text-white">JobTracker CR</strong> es un proyecto personal que
                 monitorea automáticamente más de 200 bolsas de empleo tech en Costa Rica.
-                Cada 20 minutos, un scraping corre en una VM gratuita de Oracle Cloud
+                Cada 20 minutos, un scraping corre en GitHub Actions
                 y actualiza las ofertas en Firestore.
               </p>
               <p>
@@ -209,7 +209,7 @@ export default function Home() {
               <ul className="space-y-1">
                 <li>Next.js + TypeScript (Vercel)</li>
                 <li>Firebase Firestore (base de datos)</li>
-                <li>Oracle Cloud Always Free (scraping)</li>
+                <li>GitHub Actions (scraping)</li>
                 <li>200+ providers de career-ops</li>
               </ul>
               <p className="mt-3">

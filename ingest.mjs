@@ -190,6 +190,56 @@ function jobHash(job) {
   return key.slice(0, 40);
 }
 
+const LATAM_KEYWORDS = [
+  // Costa Rica
+  'costa rica', 'san josé', 'san jose', 'heredia', 'alajuela', 'cartago',
+  // México
+  'méxico', 'mexico', 'ciudad de méxico', 'cdmx', 'guadalajara', 'monterrey', 'quintana roo', 'playa del carmen', 'cancún', 'cancun',
+  // Colombia
+  'colombia', 'bogotá', 'bogota', 'medellín', 'medellin', 'cali', 'barranquilla',
+  // Argentina
+  'argentina', 'buenos aires', 'córdoba', 'cordoba', 'rosario',
+  // Chile
+  'chile', 'santiago', 'valparaíso',
+  // Perú
+  'perú', 'peru', 'lima',
+  // Ecuador
+  'ecuador', 'quito', 'guayaquil',
+  // Venezuela
+  'venezuela', 'caracas',
+  // Panamá
+  'panamá', 'panama',
+  // Guatemala
+  'guatemala',
+  // Honduras
+  'honduras', 'tegucigalpa',
+  // El Salvador
+  'el salvador', 'san salvador',
+  // Nicaragua
+  'nicaragua', 'managua',
+  // Cuba
+  'cuba', 'la habana',
+  // República Dominicana
+  'república dominicana', 'republica dominicana', 'santo domingo',
+  // Bolivia
+  'bolivia', 'la paz', 'santa cruz',
+  // Paraguay
+  'paraguay', 'asunción', 'asuncion',
+  // Uruguay
+  'uruguay', 'montevideo',
+  // Puerto Rico
+  'puerto rico', 'san juan',
+  // Generic LATAM / Remote
+  'latam', 'latam remote', 'latin america', 'américa latina', 'américa del sur',
+  'remote latam', 'remote latin america', 'remote (latam)',
+];
+
+function isLatamJob(job) {
+  const loc = (job.location || '').toLowerCase().trim();
+  if (!loc) return true; // keep jobs with no location (may be remote)
+  return LATAM_KEYWORDS.some(kw => loc.includes(kw));
+}
+
 async function saveJobsToFirestore(jobs, source) {
   const dateKey = todayKey();
   let batch = db.batch();
@@ -277,11 +327,14 @@ async function main() {
           console.log(`  [${scraped}/${filtered.length}] ✗ ${board.name}: ${result.error}`);
         }
       } else if (result.jobs.length > 0) {
-        totalJobs += result.jobs.length;
-        console.log(`  [${scraped}/${filtered.length}] ✓ ${board.name}: ${result.jobs.length} jobs (${result.provider})`);
+        const latamJobs = result.jobs.filter(isLatamJob);
+        if (latamJobs.length > 0) {
+          totalJobs += latamJobs.length;
+          console.log(`  [${scraped}/${filtered.length}] ✓ ${board.name}: ${latamJobs.length} LATAM jobs (${result.provider})`);
 
-        if (!dryRun) {
-          await saveJobsToFirestore(result.jobs, result.provider);
+          if (!dryRun) {
+            await saveJobsToFirestore(latamJobs, result.provider);
+          }
         }
       } else {
         // Silent for empty boards

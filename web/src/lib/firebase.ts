@@ -1,10 +1,5 @@
 import { initializeApp, getApps } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-import { config } from "dotenv";
-import path from "path";
-
-// Load .env from career-ops root (parent of web/)
-config({ path: path.resolve(process.cwd(), "..", ".env") });
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,

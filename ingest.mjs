@@ -49,13 +49,24 @@ async function initFirebase() {
   // 1. Try FIREBASE_SERVICE_ACCOUNT env var (JSON string — used by GitHub Actions)
   const saJson = process.env.FIREBASE_SERVICE_ACCOUNT;
   if (saJson) {
-    const serviceAccount = JSON.parse(saJson);
+    let serviceAccount;
+    try {
+      serviceAccount = JSON.parse(saJson);
+    } catch (e) {
+      console.error('FIREBASE_SERVICE_ACCOUNT is not valid JSON:', e.message);
+      console.error('First 100 chars:', saJson.slice(0, 100));
+      process.exit(1);
+    }
+    if (!serviceAccount || !serviceAccount.project_id) {
+      console.error('FIREBASE_SERVICE_ACCOUNT parsed but missing project_id. Keys:', Object.keys(serviceAccount || {}));
+      process.exit(1);
+    }
     const admin = await import('firebase-admin');
     if (!admin.apps.length) {
       admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
     }
     db = admin.firestore();
-    console.log('Firebase Admin initialized (env var)');
+    console.log('Firebase Admin initialized (env var), project:', serviceAccount.project_id);
     return;
   }
 

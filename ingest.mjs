@@ -1,52 +1,44 @@
 #!/usr/bin/env node
 
 /**
- * ingest.mjs — Scrape STEMJobsCR boards → Firestore
+ * ingest.mjs — Fetch STEM Jobs from Telegram channels → Firestore
  *
- * Reads the Google Sheet CSV (list of 201+ active job boards),
- * uses career-ops providers to scrape each board, and saves
- * results to Firestore with a daily key.
+ * Fetches job posts from:
+ *   - https://t.me/s/STEMJobsCR (Costa Rica)
+ *   - https://t.me/s/STEMJobsLATAM (LATAM remote)
+ *
+ * Parses the HTML, extracts job data, and saves to Firestore.
  *
  * Usage:
- *   node ingest.mjs                    # scrape all active boards
- *   node ingest.mjs --company Google   # scrape one company
- *   node ingest.mjs --dry-run          # preview without writing to Firestore
- *   node ingest.mjs --since 7          # only postings from last 7 days
- *
- * Requires:
- *   - .env file with Firebase service account credentials
- *   - .env file with GOOGLE_SHEET_CSV_URL
- *
- * Runs on OCI Always Free VM via cron every 20 minutes.
+ *   node ingest.mjs                    # fetch both channels
+ *   node ingest.mjs --channel CR       # fetch only STEMJobsCR
+ *   node ingest.mjs --channel LATAM    # fetch only STEMJobsLATAM
+ *   node ingest.mjs --dry-run          # preview without writing
  */
 
-import { existsSync, readFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import path from 'path';
-import { pathToFileURL } from 'url';
-import * as yaml from 'js-yaml';
-
-// ── Config ──────────────────────────────────────────────────────────
 
 const CODE_ROOT = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1'));
 
-// Load .env from career-ops root
+// Load .env
 try {
   const { config } = await import('dotenv');
   config({ quiet: true, path: path.join(CODE_ROOT, '.env') });
 } catch { /* dotenv is optional */ }
 
-const GOOGLE_SHEET_CSV_URL = process.env.GOOGLE_SHEET_CSV_URL ||
-  'https://docs.google.com/spreadsheets/d/1wl7edAy6TcVuFh13LQ4FtvCZgPUb3ETFcQp8jlfuanM/export?format=csv&gid=0';
+// ── Telegram Channels ──────────────────────────────────────────────
 
-const CONCURRENCY = 10;
-const DAY_MS = 24 * 60 * 60 * 1000;
+const CHANNELS = {
+  CR: { url: 'https://t.me/s/STEMJobsCR', source: 'telegram-cr', label: '🇨🇷 Costa Rica' },
+  LATAM: { url: 'https://t.me/s/STEMJobsLATAM', source: 'telegram-latam', label: '🌎 LATAM' },
+};
 
-// ── Firebase Admin ──────────────────────────────────────────────────
+// ── Firebase Admin ─────────────────────────────────────────────────
 
 let db;
 
 async function initFirebase() {
-  // 1. Try FIREBASE_SERVICE_ACCOUNT env var (JSON string — used by GitHub Actions)
   const saJson = process.env.FIREBASE_SERVICE_ACCOUNT;
   if (saJson) {
     let serviceAccount;
@@ -54,11 +46,10 @@ async function initFirebase() {
       serviceAccount = JSON.parse(saJson);
     } catch (e) {
       console.error('FIREBASE_SERVICE_ACCOUNT is not valid JSON:', e.message);
-      console.error('First 100 chars:', saJson.slice(0, 100));
       process.exit(1);
     }
     if (!serviceAccount || !serviceAccount.project_id) {
-      console.error('FIREBASE_SERVICE_ACCOUNT parsed but missing project_id. Keys:', Object.keys(serviceAccount || {}));
+      console.error('FIREBASE_SERVICE_ACCOUNT missing project_id');
       process.exit(1);
     }
     const adminModule = await import('firebase-admin');
@@ -67,11 +58,10 @@ async function initFirebase() {
       admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
     }
     db = admin.firestore();
-    console.log('Firebase Admin initialized (env var), project:', serviceAccount.project_id);
+    console.log('Firebase Admin initialized, project:', serviceAccount.project_id);
     return;
   }
 
-  // 2. Try service account file (for local dev / OCI)
   const saPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || path.join(CODE_ROOT, 'firebase-service-account.json');
   if (existsSync(saPath)) {
     const serviceAccount = JSON.parse(readFileSync(saPath, 'utf8'));
@@ -85,159 +75,134 @@ async function initFirebase() {
     return;
   }
 
-  // Fallback: use firebase client SDK with env vars (for local dev)
-  const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
-  const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
-
-  if (!apiKey || !projectId) {
-    console.error('ERROR: No Firebase credentials found.');
-    console.error('Set FIREBASE_SERVICE_ACCOUNT_PATH or NEXT_PUBLIC_FIREBASE_API_KEY + NEXT_PUBLIC_FIREBASE_PROJECT_ID');
-    process.exit(1);
-  }
-
-  // For client SDK, we use dynamic import
-  const { initializeApp, getApps } = await import('firebase/app');
-  const { getFirestore } = await import('firebase/firestore');
-
-  const firebaseConfig = {
-    apiKey,
-    authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-    projectId,
-    storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-    appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
-  };
-
-  const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
-  db = getFirestore(app);
-  console.log('Firebase Client SDK initialized (env vars)');
+  console.error('ERROR: No Firebase credentials. Set FIREBASE_SERVICE_ACCOUNT or FIREBASE_SERVICE_ACCOUNT_PATH');
+  process.exit(1);
 }
 
-// ── Google Sheet CSV ────────────────────────────────────────────────
+// ── Telegram Parser ────────────────────────────────────────────────
 
-async function fetchSheetBoards() {
-  console.log('Fetching Google Sheet CSV...');
-  const res = await fetch(GOOGLE_SHEET_CSV_URL);
-  if (!res.ok) throw new Error(`Failed to fetch sheet: ${res.status}`);
-  const csv = await res.text();
-
-  const lines = csv.split('\n');
-  const boards = [];
-
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-
-    // Parse CSV: Empresa,Link,Estado
-    const parts = line.split(',');
-    const empresa = parts[0]?.trim();
-    const link = parts[1]?.trim();
-    const estado = parts[2]?.trim();
-
-    if (!empresa || !link || estado !== 'Activa') continue;
-
-    boards.push({ name: empresa, careers_url: link });
-  }
-
-  console.log(`Found ${boards.length} active boards`);
-  return boards;
+function decodeHtmlEntities(str) {
+  return str
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ');
 }
 
-// ── Provider Scraper ────────────────────────────────────────────────
-
-async function loadProviders() {
-  const providersDir = path.join(CODE_ROOT, 'providers');
-  const { loadProviders: load, resolveProvider: resolve } = await import(
-    pathToFileURL(path.join(providersDir, '_registry.mjs')).href
-  );
-  const { makeHttpCtx } = await import(
-    pathToFileURL(path.join(providersDir, '_http.mjs')).href
-  );
-
-  const providers = await load(providersDir);
-  return { providers, resolve, makeHttpCtx };
+function stripTags(str) {
+  return str.replace(/<[^>]*>/g, '');
 }
 
-async function scrapeBoard(board, providers, resolve, makeHttpCtx) {
-  const resolved = resolve(board, providers);
-  if (!resolved || resolved.error) {
-    return { jobs: [], error: resolved?.error || 'no provider found' };
+function extractBetween(html, startTag, endTag) {
+  const start = html.indexOf(startTag);
+  if (start === -1) return '';
+  const end = html.indexOf(endTag, start + startTag.length);
+  if (end === -1) return html.slice(start + startTag.length);
+  return html.slice(start + startTag.length, end);
+}
+
+function parseTelegramPost(html) {
+  const job = { title: '', company: '', location: '', url: '', description: '' };
+
+  // Extract text content from tgme_widget_message_text
+  const textBlock = extractBetween(html, 'tgme_widget_message_text', '</div>');
+  if (!textBlock) return null;
+
+  // Replace <br/> with newlines before stripping tags
+  const text = decodeHtmlEntities(stripTags(textBlock.replace(/<br\s*\/?>/gi, '\n')));
+
+  // Title: first line after the pipe separator (emoji | Title)
+  const titleMatch = text.match(/\|\s*(.+?)(?:\n|$)/);
+  if (titleMatch) {
+    job.title = titleMatch[1].trim();
   }
 
-  const ctx = {
-    ...makeHttpCtx(),
-    sinceMs: Date.now() - 30 * DAY_MS,
-    includeUndated: true,
-  };
+  // Company: between "Empresa:" and next newline or "Ubicación:" or "Tags:"
+  const companyMatch = text.match(/Empresa:\s*(.+?)(?:\n|Ubicaci|Tags:|$)/i);
+  if (companyMatch) {
+    job.company = companyMatch[1].trim();
+  }
+
+  // Location: between "Ubicación:" and next newline or "Tags:" or "Empresa:"
+  const locationMatch = text.match(/Ubicaci[oó]n:\s*(.+?)(?:\n|Tags:|Empresa:|$)/i);
+  if (locationMatch) {
+    job.location = locationMatch[1].trim();
+  }
+
+  // URL: first link in the text block
+  const linkMatch = textBlock.match(/href="(https?:\/\/[^"]+)"/);
+  if (linkMatch) {
+    job.url = linkMatch[1];
+  }
+
+  // Description: from link preview if available
+  const descMatch = html.match(/link_preview_description[^>]*>([^<]+)/);
+  if (descMatch) {
+    job.description = decodeHtmlEntities(descMatch[1]).trim().slice(0, 2000);
+  }
+
+  // Date from time element
+  const timeMatch = html.match(/datetime="([^"]+)"/);
+  if (timeMatch) {
+    job.postedAt = timeMatch[1];
+  }
+
+  return job;
+}
+
+function parseTelegramChannel(html) {
+  const posts = [];
+  const msgRegex = /tgme_widget_message_wrap[^"]*"[^>]*>([\s\S]*?)(?=tgme_widget_message_wrap|$)/g;
+  let match;
+
+  while ((match = msgRegex.exec(html)) !== null) {
+    const postHtml = match[1];
+    const job = parseTelegramPost(postHtml);
+    if (job && job.title && job.url) {
+      posts.push(job);
+    }
+  }
+
+  return posts;
+}
+
+// ── Fetch Channel ──────────────────────────────────────────────────
+
+async function fetchChannel(channel) {
+  console.log(`Fetching ${channel.label} (${channel.url})...`);
 
   try {
-    const jobs = await resolved.provider.fetch(board, ctx);
-    return { jobs: Array.isArray(jobs) ? jobs : [], provider: resolved.provider.id };
+    const res = await fetch(channel.url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; JobTrackerBot/1.0)' },
+    });
+
+    if (!res.ok) {
+      console.error(`  HTTP ${res.status} from ${channel.url}`);
+      return [];
+    }
+
+    const html = await res.text();
+    const jobs = parseTelegramChannel(html);
+    console.log(`  Found ${jobs.length} jobs from ${channel.label}`);
+    return jobs;
   } catch (err) {
-    return { jobs: [], error: err.message };
+    console.error(`  Error fetching ${channel.label}:`, err.message);
+    return [];
   }
 }
 
-// ── Firestore Writer ────────────────────────────────────────────────
+// ── Firestore Writer ───────────────────────────────────────────────
 
 function todayKey() {
-  return new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  return new Date().toISOString().split('T')[0];
 }
 
 function jobHash(job) {
-  // Simple dedup hash: company + title (normalized)
   const key = `${(job.company || '').toLowerCase()}-${(job.title || '').toLowerCase()}`.replace(/[^a-z0-9]/g, '');
   return key.slice(0, 40);
-}
-
-const LATAM_KEYWORDS = [
-  // Costa Rica
-  'costa rica', 'san josé', 'san jose', 'heredia', 'alajuela', 'cartago',
-  // México
-  'méxico', 'mexico', 'ciudad de méxico', 'cdmx', 'guadalajara', 'monterrey', 'quintana roo', 'playa del carmen', 'cancún', 'cancun',
-  // Colombia
-  'colombia', 'bogotá', 'bogota', 'medellín', 'medellin', 'cali', 'barranquilla',
-  // Argentina
-  'argentina', 'buenos aires', 'córdoba', 'cordoba', 'rosario',
-  // Chile
-  'chile', 'santiago', 'valparaíso',
-  // Perú
-  'perú', 'peru', 'lima',
-  // Ecuador
-  'ecuador', 'quito', 'guayaquil',
-  // Venezuela
-  'venezuela', 'caracas',
-  // Panamá
-  'panamá', 'panama',
-  // Guatemala
-  'guatemala',
-  // Honduras
-  'honduras', 'tegucigalpa',
-  // El Salvador
-  'el salvador', 'san salvador',
-  // Nicaragua
-  'nicaragua', 'managua',
-  // Cuba
-  'cuba', 'la habana',
-  // República Dominicana
-  'república dominicana', 'republica dominicana', 'santo domingo',
-  // Bolivia
-  'bolivia', 'la paz', 'santa cruz',
-  // Paraguay
-  'paraguay', 'asunción', 'asuncion',
-  // Uruguay
-  'uruguay', 'montevideo',
-  // Puerto Rico
-  'puerto rico', 'san juan',
-  // Generic LATAM / Remote
-  'latam', 'latam remote', 'latin america', 'américa latina', 'américa del sur',
-  'remote latam', 'remote latin america', 'remote (latam)',
-];
-
-function isLatamJob(job) {
-  const loc = (job.location || '').toLowerCase().trim();
-  if (!loc) return true; // keep jobs with no location (may be remote)
-  return LATAM_KEYWORDS.some(kw => loc.includes(kw));
 }
 
 async function saveJobsToFirestore(jobs, source) {
@@ -258,9 +223,10 @@ async function saveJobsToFirestore(jobs, source) {
       description: (job.description || '').slice(0, 2000),
       source,
       date: dateKey,
+      postedAt: job.postedAt || null,
       scrapedAt: new Date(),
       viewed: false,
-    }, { merge: true }); // merge: don't overwrite if already exists
+    }, { merge: true });
 
     count++;
     if (count % 500 === 0) {
@@ -277,77 +243,42 @@ async function saveJobsToFirestore(jobs, source) {
   return count;
 }
 
-// ── Main ────────────────────────────────────────────────────────────
+// ── Main ───────────────────────────────────────────────────────────
 
 async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
-  const companyFilter = args.includes('--company') ? args[args.indexOf('--company') + 1] : null;
+  const channelFilter = args.includes('--channel') ? args[args.indexOf('--channel') + 1]?.toUpperCase() : null;
 
   console.log('═══════════════════════════════════════════');
-  console.log('  STEM Jobs → Firestore Ingest');
+  console.log('  STEM Jobs → Telegram → Firestore');
   console.log(`  ${new Date().toISOString()}`);
   console.log('═══════════════════════════════════════════\n');
 
   await initFirebase();
 
-  const boards = await fetchSheetBoards();
-  const filtered = companyFilter
-    ? boards.filter(b => b.name.toLowerCase().includes(companyFilter.toLowerCase()))
-    : boards;
-
-  if (filtered.length === 0) {
-    console.log('No boards to scrape.');
-    return;
-  }
-
-  console.log(`\nScraping ${filtered.length} boards (concurrency: ${CONCURRENCY})...\n`);
-
-  const { providers, resolve, makeHttpCtx } = await loadProviders();
+  const channelsToFetch = channelFilter
+    ? Object.entries(CHANNELS).filter(([k]) => k === channelFilter)
+    : Object.entries(CHANNELS);
 
   let totalJobs = 0;
-  let totalErrors = 0;
-  let scraped = 0;
 
-  // Process in batches
-  for (let i = 0; i < filtered.length; i += CONCURRENCY) {
-    const batch = filtered.slice(i, i + CONCURRENCY);
-    const results = await Promise.all(
-      batch.map(board => scrapeBoard(board, providers, resolve, makeHttpCtx))
-    );
+  for (const [key, channel] of channelsToFetch) {
+    const jobs = await fetchChannel(channel);
 
-    for (let j = 0; j < batch.length; j++) {
-      const board = batch[j];
-      const result = results[j];
-      scraped++;
-
-      if (result.error) {
-        totalErrors++;
-        if (scraped % 20 === 0 || result.jobs.length > 0) {
-          console.log(`  [${scraped}/${filtered.length}] ✗ ${board.name}: ${result.error}`);
-        }
-      } else if (result.jobs.length > 0) {
-        const latamJobs = result.jobs.filter(isLatamJob);
-        if (latamJobs.length > 0) {
-          totalJobs += latamJobs.length;
-          console.log(`  [${scraped}/${filtered.length}] ✓ ${board.name}: ${latamJobs.length} LATAM jobs (${result.provider})`);
-
-          if (!dryRun) {
-            await saveJobsToFirestore(latamJobs, result.provider);
-          }
-        }
-      } else {
-        // Silent for empty boards
-      }
+    if (jobs.length > 0 && !dryRun) {
+      const saved = await saveJobsToFirestore(jobs, channel.source);
+      totalJobs += saved;
+      console.log(`  Saved ${saved} jobs to Firestore (${channel.label})`);
+    } else if (dryRun && jobs.length > 0) {
+      console.log(`  [dry-run] Would save ${jobs.length} jobs (${channel.label})`);
+      jobs.slice(0, 3).forEach(j => console.log(`    - ${j.company}: ${j.title}`));
+      totalJobs += jobs.length;
     }
   }
 
   console.log('\n═══════════════════════════════════════════');
-  console.log(`  Done!`);
-  console.log(`  Boards scraped: ${scraped}`);
-  console.log(`  Total jobs: ${totalJobs}`);
-  console.log(`  Errors: ${totalErrors}`);
-  console.log(`  Date: ${todayKey()}`);
+  console.log(`  Done! Total jobs: ${totalJobs}`);
   if (dryRun) console.log('  (dry run — nothing written to Firestore)');
   console.log('═══════════════════════════════════════════');
 }

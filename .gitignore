@@ -200,10 +200,3 @@ documents/*
 # Intake fingerprints — the recorded source filenames may themselves carry
 # PII (e.g. cv/jane-doe-master-cv.pdf). #1723
 data/intake-state.json
-
-# Firebase credentials (NEVER commit)
-firebase-service-account.json
-*-firebase-adminsdk-*.json
-
-# Environment variables
-.env
